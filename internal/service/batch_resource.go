@@ -23,10 +23,17 @@ func ProcessResourceBatch(l *ResourceLimiter, count int, failAt int) (err error)
 		if openErr != nil {
 			return openErr
 		}
-		defer func() { err = model.MergeProcessingError(err, closeResource()) }()
+
 		if i == failAt {
-			return errors.New("probe failed")
+			// 探测失败：先关闭本项资源，再返回探测错误，避免占用被带到后续项。
+			err = model.MergeProcessingError(errors.New("probe failed"), closeResource())
+			return err
+		}
+
+		// 正常项：立即关闭资源，释放配额给后续项使用。
+		if closeErr := closeResource(); closeErr != nil {
+			err = model.MergeProcessingError(err, closeErr)
 		}
 	}
-	return nil
+	return err
 }
